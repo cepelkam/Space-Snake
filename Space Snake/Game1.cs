@@ -16,29 +16,26 @@ namespace Space_Snake
         private Texture2D portalTexture;
         private Texture2D starTexture;
 
+        private Vector2 snakePosition;
         private List<Vector2> snakeSegments = new List<Vector2>();
         private int segmentCount = 3; // 3 segmenty
         private float segmentSpacing = 20f;
 
-        private Vector2 snakePosition;
-        private Vector2 snakeVelocity;
-
         private List<Vector2> obstacles = new List<Vector2>();
         private List<Vector2> obstacleSizes = new List<Vector2>();
-        private float minObstacleDistance = 120f; // hustší překážky
+        private float minObstacleDistance = 80f; // menší mezera = více překážek
 
         private Vector2 portalPosition;
+        private float portalWidth = 50f;
+        private float portalHeight = 50f;
         private bool portalActive = false;
 
-        private float scrollSpeed = 4f; // startovní rychlost
-        private float timeSinceStart = 0f;
-        private float portalDelay = 2f; // čas od poslední překážky do portálu
+        private float scrollSpeed = 3f;
+        private float snakeSpeed = 300f; // rychlost hada
+        private float levelProgress = 0f;
 
-        private List<Vector2> stars = new List<Vector2>();
-        private int starCount = 200;
+        private int level = 1;
         private Random rand = new Random();
-
-        private int score = 0;
 
         public Game1()
         {
@@ -53,18 +50,7 @@ namespace Space_Snake
             _graphics.PreferredBackBufferHeight = 600;
             _graphics.ApplyChanges();
 
-            snakePosition = new Vector2(100, 300);
-
-            // had fixní v rovině
-            for (int i = 0; i < segmentCount; i++)
-                snakeSegments.Add(snakePosition - new Vector2(i * segmentSpacing, 0));
-
-            // hvězdy
-            for (int i = 0; i < starCount; i++)
-                stars.Add(new Vector2(rand.Next(0, 800), rand.Next(0, 600)));
-
-            // spawn překážek
-            SpawnInitialObstacles();
+            ResetLevel();
 
             base.Initialize();
         }
@@ -86,69 +72,65 @@ namespace Space_Snake
             starTexture.SetData(new[] { Color.White });
         }
 
-        private void SpawnInitialObstacles()
+        private void GenerateObstacles()
         {
+            obstacles.Clear();
+            obstacleSizes.Clear();
+
             float x = 400;
-            while (x < 2500) // víc překážek dopředu
+            int obstacleCount = 15 + level * 3; // hodně překážek
+            for (int i = 0; i < obstacleCount; i++)
             {
                 float y = rand.Next(50, 550);
-                float size = rand.Next(30, 50);
+                float size = rand.Next(25, 50);
                 obstacles.Add(new Vector2(x, y));
                 obstacleSizes.Add(new Vector2(size, size));
-                x += minObstacleDistance + rand.Next(30, 100);
+                x += minObstacleDistance + rand.Next(20, 60);
             }
 
-            // portal za poslední překážkou + malá prodleva
-            portalPosition = new Vector2(x + scrollSpeed * portalDelay * 60, 250); // fixní Y pro portal
+            portalPosition = new Vector2(x + 200, rand.Next(100, 500));
+            portalActive = false;
         }
 
         protected override void Update(GameTime gameTime)
         {
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
-            timeSinceStart += dt;
-
-            scrollSpeed = 4f + timeSinceStart * 0.2f;
-
             var kstate = Keyboard.GetState();
 
-            // pohyb had nahoru/dolů, ale segmenty fixní
-            snakeVelocity = Vector2.Zero;
-            if (kstate.IsKeyDown(Keys.Up)) snakeVelocity.Y = -200f;
-            if (kstate.IsKeyDown(Keys.Down)) snakeVelocity.Y = 200f;
+            // pohyb nahoru/dolů
+            Vector2 velocity = Vector2.Zero;
+            if (kstate.IsKeyDown(Keys.Up)) velocity.Y = -snakeSpeed;
+            if (kstate.IsKeyDown(Keys.Down)) velocity.Y = snakeSpeed;
 
-            snakePosition += snakeVelocity * dt;
+            snakePosition += velocity * dt;
             snakePosition.Y = MathHelper.Clamp(snakePosition.Y, 0, _graphics.PreferredBackBufferHeight - 20);
 
-            for (int i = 0; i < segmentCount; i++)
-                snakeSegments[i] = snakePosition - new Vector2(i * segmentSpacing, 0); // fixní segmenty
+            // posun segmentů hada
+            for (int i = 0; i < snakeSegments.Count; i++)
+            {
+                if (i == 0) snakeSegments[i] = snakePosition;
+                else
+                {
+                    Vector2 dir = snakeSegments[i - 1] - snakeSegments[i];
+                    if (dir.Length() > segmentSpacing)
+                        snakeSegments[i] += 0.3f * dir;
+                }
+            }
 
-            // posun překážek
+            // posun překážek a portálu
             for (int i = 0; i < obstacles.Count; i++)
                 obstacles[i] -= new Vector2(scrollSpeed, 0);
 
-            // aktivace portálu, když dojedeš poslední překážku
-            if (!portalActive && obstacles.Count == 0)
-                portalActive = true;
+            portalPosition.X -= scrollSpeed;
 
-            if (portalActive)
-                portalPosition.X -= scrollSpeed;
-
-            // odstranění překážek mimo obrazovku a skore
-            for (int i = obstacles.Count - 1; i >= 0; i--)
-            {
-                if (obstacles[i].X + obstacleSizes[i].X < 0)
-                {
-                    obstacles.RemoveAt(i);
-                    obstacleSizes.RemoveAt(i);
-                    score++;
-                }
-            }
+            levelProgress += scrollSpeed;
 
             // kolize s překážkami
             Rectangle headRect = new Rectangle((int)snakeSegments[0].X, (int)snakeSegments[0].Y, 20, 20);
             for (int i = 0; i < obstacles.Count; i++)
             {
-                Rectangle obsRect = new Rectangle((int)obstacles[i].X, (int)obstacles[i].Y, (int)obstacleSizes[i].X, (int)obstacleSizes[i].Y);
+                Rectangle obsRect = new Rectangle((int)obstacles[i].X, (int)obstacles[i].Y,
+                    (int)obstacleSizes[i].X, (int)obstacleSizes[i].Y);
                 if (headRect.Intersects(obsRect))
                 {
                     ResetLevel();
@@ -156,13 +138,21 @@ namespace Space_Snake
                 }
             }
 
-            // kolize s portálem
+            // aktivace portálu
+            if (!portalActive && portalPosition.X < _graphics.PreferredBackBufferWidth - 100)
+                portalActive = true;
+
+            // kolize s portálem → nový level
             if (portalActive)
             {
-                Rectangle portalRect = new Rectangle((int)portalPosition.X, (int)portalPosition.Y, 50, 50);
+                Rectangle portalRect = new Rectangle((int)portalPosition.X, (int)portalPosition.Y, (int)portalWidth, (int)portalHeight);
                 if (headRect.Intersects(portalRect))
                 {
-                    ResetLevel(); // restart hry po dojetí portálu
+                    level++;
+                    scrollSpeed += 0.5f;
+                    snakeSpeed += 20f;
+                    ResetLevel();
+                    return;
                 }
             }
 
@@ -172,17 +162,12 @@ namespace Space_Snake
         private void ResetLevel()
         {
             snakePosition = new Vector2(100, 300);
+            snakeSegments.Clear();
             for (int i = 0; i < segmentCount; i++)
-                snakeSegments[i] = snakePosition - new Vector2(i * segmentSpacing, 0);
+                snakeSegments.Add(snakePosition - new Vector2(i * segmentSpacing, 0));
 
-            obstacles.Clear();
-            obstacleSizes.Clear();
-            SpawnInitialObstacles();
-
-            portalActive = false;
-            timeSinceStart = 0f;
-            scrollSpeed = 4f;
-            score = 0;
+            levelProgress = 0f;
+            GenerateObstacles();
         }
 
         protected override void Draw(GameTime gameTime)
@@ -191,23 +176,24 @@ namespace Space_Snake
             _spriteBatch.Begin();
 
             // hvězdy
-            foreach (var star in stars)
-                _spriteBatch.Draw(starTexture, new Rectangle((int)star.X, (int)star.Y, 2, 2), Color.White);
+            for (int i = 0; i < 200; i++)
+                _spriteBatch.Draw(starTexture, new Rectangle(rand.Next(0, 800), rand.Next(0, 600), 2, 2), Color.White);
 
             // překážky
             for (int i = 0; i < obstacles.Count; i++)
-                _spriteBatch.Draw(obstacleTexture, new Rectangle((int)obstacles[i].X, (int)obstacles[i].Y, (int)obstacleSizes[i].X, (int)obstacleSizes[i].Y), Color.Red);
+                _spriteBatch.Draw(obstacleTexture, new Rectangle((int)obstacles[i].X, (int)obstacles[i].Y,
+                    (int)obstacleSizes[i].X, (int)obstacleSizes[i].Y), Color.Red);
 
             // portál
             if (portalActive)
-                _spriteBatch.Draw(portalTexture, new Rectangle((int)portalPosition.X, (int)portalPosition.Y, 50, 50), Color.Cyan);
+                _spriteBatch.Draw(portalTexture, new Rectangle((int)portalPosition.X, (int)portalPosition.Y,
+                    (int)portalWidth, (int)portalHeight), Color.Cyan);
 
             // had
             foreach (var seg in snakeSegments)
                 _spriteBatch.Draw(snakeSegmentTexture, new Rectangle((int)seg.X, (int)seg.Y, 20, 20), Color.LimeGreen);
 
             _spriteBatch.End();
-
             base.Draw(gameTime);
         }
     }
